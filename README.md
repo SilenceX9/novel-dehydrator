@@ -120,7 +120,8 @@ A: 在设置页面调整 Prompt，要求 AI 保留更多内容，或降低 `CHUN
 **Q: 处理中途断了怎么办？**
 A: 直接重新点「开始脱水」，系统会跳过已完成章节，从断点继续。
 
-**感谢Linux Do社区提供的公益服务**
+## 致谢
+**感谢[Linux Do社区]([url](https://linux.do/))提供的灵感和公益服务**
 
 ## 许可证
 
@@ -159,4 +160,5 @@ bash run.sh            # Open http://127.0.0.1:8765
 
 MIT
 
-**Thanks to Linux Do Community for the public welfare services provided**
+## Acknowledgements
+**Thanks to [Linux Do Community](https://linux.do/) for inspiration and public welfare services**
