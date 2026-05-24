@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>书籍详情 — 小说速读</title>
+  <script>
+    (function() {
+      const t = localStorage.getItem('theme');
+      const dark = t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (dark) document.documentElement.classList.add('dark');
+      if (!t) {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+          document.documentElement.classList.toggle('dark', e.matches);
+        });
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 24px 80px;
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 28px;
+    }
+    @media (max-width: 900px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar { position: static !important; }
+    }
+
+    .sidebar {
+      position: sticky;
+      top: calc(var(--nav-h) + 28px);
+      align-self: start;
+      max-height: calc(100vh - var(--nav-h) - 56px);
+      display: flex; flex-direction: column;
+      background: var(--surface);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .sidebar-head {
+      padding: 14px 16px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-head h3 { font-size: 13px; font-weight: 600; color: var(--text); }
+    .sidebar-actions {
+      display: flex; gap: 4px;
+    }
+    .text-btn {
+      background: none; border: none; padding: 4px 8px;
+      font: inherit; font-size: 12px; color: var(--text-2);
+      cursor: pointer; border-radius: 6px;
+      transition: all 0.15s;
+    }
+    .text-btn:hover { color: var(--accent); background: var(--accent-soft); }
+    .text-btn.muted-text { color: var(--text-3); }
+    .text-btn.muted-text:hover { color: var(--danger); background: rgba(215,0,21,0.08); }
+
+    .vol-jumper {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex; gap: 5px; overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .vol-jumper::-webkit-scrollbar { display: none; }
+    .vol-chip {
+      flex-shrink: 0;
+      min-width: 26px; height: 24px;
+      padding: 0 8px;
+      font-size: 11.5px; font-weight: 500;
+      background: var(--surface-2);
+      color: var(--text-2);
+      border: none; border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s var(--ease-apple);
+    }
+    .vol-chip:hover { background: var(--accent-soft); color: var(--accent); }
+    .vol-chip.active { background: var(--accent); color: #fff; }
+
+    .tree {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 8px;
+    }
+
+    .vol-group { margin-bottom: 2px; }
+    .vol-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px 7px 8px;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .vol-row:hover { background: var(--surface-2); }
+    .vol-toggle {
+      width: 14px; height: 14px;
+      display: grid; place-content: center;
+      color: var(--text-3);
+      transition: transform 0.18s var(--ease-apple);
+      flex-shrink: 0;
+    }
+    .vol-toggle.open { transform: rotate(90deg); }
+    .vol-toggle svg { width: 10px; height: 10px; }
+
+    .vol-title {
+      flex: 1; min-width: 0;
+      font-size: 13px; font-weight: 500;
+      color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .vol-meta {
+      font-size: 11px; color: var(--text-3);
+      flex-shrink: 0;
+    }
+    .vol-done {
+      font-size: 11px; color: var(--success); font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .ch-list {
+      padding: 2px 0 6px 30px;
+      overflow: hidden;
+      animation: ch-open 0.22s var(--ease-apple);
+    }
+    @keyframes ch-open { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+    .ch-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .ch-row:hover { background: var(--surface-2); }
+    .ch-title {
+      flex: 1; min-width: 0;
+      font-size: 12.5px; color: var(--text-2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      letter-spacing: -0.005em;
+    }
+    .ch-row:hover .ch-title { color: var(--text); }
+    .ch-status { font-size: 11px; flex-shrink: 0; font-weight: 500; }
+    .ch-status.done { color: var(--success); }
+    .ch-status.failed { color: var(--danger); }
+    .ch-status.processing { color: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+
+    .sidebar-foot {
+      border-top: 1px solid var(--border);
+      padding: 14px 16px;
+      background: var(--surface);
+    }
+    .estimate {
+      font-size: 12px;
+      color: var(--text-2);
+      margin-bottom: 12px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .estimate-row {
+      display: flex; justify-content: space-between;
+    }
+    .estimate-row span:last-child {
+      color: var(--text); font-weight: 500;
+      font-variant-numeric: tabular-nums;
+    }
+    .estimate-cost { color: var(--accent); }
+
+    .action-bar {
+      display: flex; gap: 10px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
+    .action-bar .btn { flex: 0 1 auto; }
+    .action-bar .btn.primary { flex: 1; min-width: 160px; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 560px) {
+      .stats { grid-template-columns: 1fr; }
+    }
+    .stat {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+    }
+    .stat-label {
+      font-size: 11.5px; color: var(--text-2);
+      margin: 0 0 6px;
+      letter-spacing: 0.02em; text-transform: uppercase;
+      font-weight: 500;
+    }
+    .stat-value {
+      font-size: 26px; font-weight: 600;
+      letter-spacing: -0.022em;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-value.accent { color: var(--accent); }
+    .stat-value.success { color: var(--success); }
+
+    .job-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      margin-bottom: 18px;
+    }
+    .job-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .job-title {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 14px; font-weight: 600;
+      color: var(--text);
+    }
+    .pulse-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 0 var(--accent);
+      animation: dot-pulse 1.8s infinite;
+    }
+    @keyframes dot-pulse {
+      0% { box-shadow: 0 0 0 0 var(--accent-soft); }
+      70% { box-shadow: 0 0 0 8px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+
+    .progress.thick { height: 6px; }
+    .progress-meta {
+      display: flex; justify-content: space-between;
+      font-size: 12px; color: var(--text-2);
+      margin-top: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .progress-meta .failed { color: var(--danger); }
+    .current-ch {
+      margin-top: 12px;
+      font-size: 12px; color: var(--text-3);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .current-ch span.t { color: var(--text); }
+
+    .alert {
+      padding: 14px 16px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      border: 1px solid;
+    }
+    .alert-danger { background: rgba(215,0,21,0.08); color: var(--danger); border-color: rgba(215,0,21,0.2); }
+    .alert-info { background: var(--accent-soft); color: var(--accent); border-color: rgba(0,113,227,0.18); }
+    .dark .alert-danger { background: rgba(255,69,58,0.12); border-color: rgba(255,69,58,0.28); }
+
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  </style>
+</head>
+<body x-data="bookDetail({{ book_id }})" x-init="init()" x-cloak>
+
+  <header class="nav-glass">
+    <a href="/" class="nav-back">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      书架
+    </a>
+    <span class="nav-title" style="margin-left:4px;" x-text="book.title || '加载中…'"></span>
+    <div style="flex:1"></div>
+    <span class="text-tiny muted" x-show="book.total_chapters" x-text="`${book.total_chapters} 章`"></span>
+    <button class="icon-btn" @click="toggleDark()" :title="isDark ? '切换浅色' : '切换深色'">
+      <svg x-show="!isDark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg x-show="isDark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    </button>
+  </header>
+
+  <main class="page">
+
+    <!-- Sidebar: chapter selector -->
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <h3 x-text="`已选 ${selectedCount} 章`"></h3>
+        <div class="sidebar-actions">
+          <button class="text-btn" @click="selectAllPending()">选未脱水</button>
+          <button class="text-btn muted-text" @click="clearSelection()" x-show="selectedCount > 0">清空</button>
+        </div>
+      </div>
+
+      <!-- Volume jumper -->
+      <template x-if="structure.has_volumes && structure.volumes.length > 0">
+        <div class="vol-jumper">
+          <template x-if="structure.loose_chapters.length > 0">
+            <button class="vol-chip" title="未归篇章" @click="jumpToVolume('vol-loose')">散</button>
+          </template>
+          <template x-for="(vol, idx) in structure.volumes" :key="vol.id">
+            <button class="vol-chip" :title="vol.title" @click="jumpToVolume('vol-' + vol.id)" x-text="idx + 1"></button>
+          </template>
+        </div>
+      </template>
+
+      <!-- Tree -->
+      <div class="tree" x-ref="chapterTree">
+
+        <!-- Has volumes -->
+        <template x-if="structure.has_volumes">
+          <div>
+            <template x-if="structure.loose_chapters.length > 0">
+              <div class="vol-group" id="vol-loose">
+                <div class="vol-row" @click="toggleVolOpen('loose')">
+                  <span class="vol-toggle" :class="{ open: volOpen['loose'] }">
+                    <svg viewBox="0 0 12 12" fill="currentColor"><path d="M4 2l4 4-4 4z"/></svg>
+                  </span>
+                  <input type="checkbox" :checked="isLooseChecked()" :indeterminate.prop="isLooseIndeterminate()" @click.stop="toggleLoose()">
+                  <span class="vol-title" style="color: var(--text-2);">未归篇章</span>
+                  <span class="vol-meta" x-text="structure.loose_chapters.length + ' 章'"></span>
+                  <span class="vol-done" x-show="countDone(structure.loose_chapters) > 0" x-text="'✓ ' + countDone(structure.loose_chapters)"></span>
+                </div>
+                <div class="ch-list" x-show="volOpen['loose']">
+                  <template x-for="ch in structure.loose_chapters" :key="ch.id">
+                    <div class="ch-row" @click="toggleChapter(ch.id)">
+                      <input type="checkbox" :checked="selectedIds.has(ch.id)" @click.stop="toggleChapter(ch.id)">
+                      <span class="ch-title" x-text="ch.title"></span>
+                      <span :class="'ch-status ' + (ch.dehydrate_status || '')" x-html="statusBadge(ch)"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+
+            <template x-for="vol in structure.volumes" :key="vol.id">
+              <div class="vol-group" :id="'vol-' + vol.id">
+                <div class="vol-row" @click="toggleVolOpen(vol.id)">
+                  <span class="vol-toggle" :class="{ open: volOpen[vol.id] }">
+                    <svg viewBox="0 0 12 12" fill="currentColor"><path d="M4 2l4 4-4 4z"/></svg>
+                  </span>
+                  <input type="checkbox" :checked="isVolumeChecked(vol)" :indeterminate.prop="isVolumeIndeterminate(vol)" @click.stop="toggleVolume(vol)">
+                  <span class="vol-title" x-text="vol.title"></span>
+                  <span class="vol-meta" x-text="vol.chapters.length + ' 章'"></span>
+                  <span class="vol-done" x-show="countDone(vol.chapters) > 0" x-text="'✓ ' + countDone(vol.chapters)"></span>
+                </div>
+                <div class="ch-list" x-show="volOpen[vol.id]">
+                  <template x-for="ch in vol.chapters" :key="ch.id">
+                    <div class="ch-row" @click="toggleChapter(ch.id)">
+                      <input type="checkbox" :checked="selectedIds.has(ch.id)" @click.stop="toggleChapter(ch.id)">
+                      <span class="ch-title" x-text="ch.title"></span>
+                      <span :class="'ch-status ' + (ch.dehydrate_status || '')" x-html="statusBadge(ch)"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- No volumes: flat list -->
+        <template x-if="!structure.has_volumes">
+          <div>
+            <template x-for="ch in structure.loose_chapters" :key="ch.id">
+              <div class="ch-row" style="padding-left: 12px;" @click="toggleChapter(ch.id)">
+                <input type="checkbox" :checked="selectedIds.has(ch.id)" @click.stop="toggleChapter(ch.id)">
+                <span class="ch-title" x-text="ch.title"></span>
+                <span :class="'ch-status ' + (ch.dehydrate_status || '')" x-html="statusBadge(ch)"></span>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+
+      <div class="sidebar-foot">
+        <div class="estimate" x-show="estimate">
+          <div class="estimate-row">
+            <span>预估 Token</span>
+            <span x-text="`${((estimate?.total_tokens||0)/1000).toFixed(1)}K`"></span>
+          </div>
+          <div class="estimate-row">
+            <span>预估费用</span>
+            <span class="estimate-cost" x-text="`¥${estimate?.cost_yuan||0}`"></span>
+          </div>
+        </div>
+
+        <button
+          class="btn btn-primary"
+          style="width:100%; height:38px;"
+          @click="startDehydrate()"
+          :disabled="selectedCount === 0 || (activeJob && (activeJob.status === 'running' || activeJob.status === 'pause_pending'))">
+          <template x-if="!(activeJob && (activeJob.status === 'running' || activeJob.status === 'pause_pending'))">
+            <span>
+              开始脱水<span x-show="selectedCount > 0" x-text="` · ${selectedCount} 章`"></span>
+            </span>
+          </template>
+          <template x-if="activeJob && (activeJob.status === 'running' || activeJob.status === 'pause_pending')">
+            <span>脱水进行中…</span>
+          </template>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Right panel -->
+    <section>
+
+      <!-- Action bar -->
+      <div class="action-bar" x-show="book.total_chapters > 0">
+        <a class="btn btn-primary btn-lg primary" :href="`/book/${bookId}/reader`">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          开始阅读
+        </a>
+        <a class="btn btn-secondary btn-lg" :href="`/api/books/${bookId}/export?format=epub`" target="_blank">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          EPUB
+        </a>
+        <a class="btn btn-secondary btn-lg" :href="`/api/books/${bookId}/export?format=txt`" target="_blank">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          TXT
+        </a>
+      </div>
+
+      <!-- Active job -->
+      <div x-show="activeJob" class="job-card fade-in">
+        <div class="job-head">
+          <div class="job-title">
+            <span x-show="activeJob?.status === 'running'" class="pulse-dot"></span>
+            <span>
+              <template x-if="activeJob?.status === 'running'">脱水进行中</template>
+              <template x-if="activeJob?.status === 'pause_pending'">正在暂停…</template>
+              <template x-if="activeJob?.status === 'paused'">已暂停</template>
+              <template x-if="activeJob?.status === 'completed'">脱水完成</template>
+            </span>
+          </div>
+          <div style="display:flex; gap: 8px;">
+            <button x-show="activeJob?.status === 'running'" class="btn btn-secondary btn-sm" @click="pauseJob()">暂停</button>
+            <button x-show="activeJob?.status === 'pause_pending'" class="btn btn-ghost btn-sm" disabled style="color:var(--warning);">正在暂停…</button>
+            <button x-show="activeJob?.status === 'paused'" class="btn btn-primary btn-sm" @click="resumeJob()">继续</button>
+            <span x-show="activeJob?.status === 'completed'" class="pill pill-success" style="height:28px;padding:0 12px;">✓ 已完成</span>
+          </div>
+        </div>
+
+        <div class="progress thick">
+          <div :style="`width: ${activeJob ? Math.round((activeJob.done + activeJob.failed) / activeJob.total * 100) : 0}%`"></div>
+        </div>
+        <div class="progress-meta">
+          <span x-text="`${activeJob?.done || 0} / ${activeJob?.total || 0} 章`"></span>
+          <span x-show="activeJob?.failed > 0" class="failed" x-text="`失败 ${activeJob?.failed} 章`"></span>
+        </div>
+
+        <div class="current-ch" x-show="activeJob?.current && activeJob?.status === 'running'">
+          <span>正在处理：</span>
+          <span class="t" x-text="activeJob?.current?.title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats" x-show="book.total_chapters > 0">
+        <div class="stat">
+          <p class="stat-label">总章节</p>
+          <p class="stat-value" x-text="book.total_chapters || 0"></p>
+        </div>
+        <div class="stat">
+          <p class="stat-label">已脱水</p>
+          <p class="stat-value success" x-text="doneCount"></p>
+        </div>
+        <div class="stat">
+          <p class="stat-label">平均压缩率</p>
+          <p class="stat-value accent" x-text="avgRatio ? `${Math.round(avgRatio * 100)}%` : '—'"></p>
+        </div>
+      </div>
+
+      <!-- Parse states -->
+      <div x-show="book.parse_status === 'failed'" class="alert alert-danger">
+        <strong>解析失败：</strong><span x-text="book.parse_error"></span>
+      </div>
+      <div x-show="book.parse_status === 'parsing'" class="alert alert-info" style="display:flex;align-items:center;gap:10px;">
+        <span class="pulse-dot"></span>
+        正在解析书籍目录，请稍候…
+      </div>
+    </section>
+  </main>
+
+<script>
+function bookDetail(bookId) {
+  return {
+    bookId,
+    book: {},
+    structure: { has_volumes: false, volumes: [], loose_chapters: [] },
+    volOpen: {},
+    selectedIds: new Set(),
+    activeJob: null,
+    sseSource: null,
+    pollTimer: null,
+    estimate: null,
+    isDark: document.documentElement.classList.contains('dark'),
+
+    get selectedCount() { return this.selectedIds.size; },
+    get doneCount() {
+      return this.allChapters().filter(c => c.dehydrate_status === 'done').length;
+    },
+    get avgRatio() {
+      const done = this.allChapters().filter(c => c.compression_ratio != null);
+      if (!done.length) return null;
+      return done.reduce((s, c) => s + c.compression_ratio, 0) / done.length;
+    },
+
+    toggleDark() {
+      this.isDark = !this.isDark;
+      document.documentElement.classList.toggle('dark', this.isDark);
+      localStorage.setItem('theme', this.isDark ? 'dark' : 'light');
+    },
+
+    allChapters() {
+      const vols = this.structure.volumes.flatMap(v => v.chapters);
+      return [...vols, ...this.structure.loose_chapters];
+    },
+
+    async init() {
+      await this.loadBook();
+      if (this.book.parse_status === 'done') {
+        await this.loadStructure();
+        this.initVolOpen();
+        await this.loadLatestJob();
+      } else if (this.book.parse_status === 'parsing') {
+        this.pollParse();
+      }
+      this.$watch('selectedIds', () => this.updateEstimate());
+    },
+
+    initVolOpen() {
+      // Default: first volume open, rest collapsed. If no volumes, no-op.
+      const o = {};
+      if (this.structure.loose_chapters.length > 0) o['loose'] = true;
+      this.structure.volumes.forEach((v, i) => { o[v.id] = i === 0 && !o['loose']; });
+      // If no loose, open first vol; if loose exists, keep loose open + first vol closed
+      if (this.structure.volumes.length > 0 && Object.keys(o).filter(k => o[k]).length === 0) {
+        o[this.structure.volumes[0].id] = true;
+      }
+      this.volOpen = o;
+    },
+
+    toggleVolOpen(key) {
+      this.volOpen = { ...this.volOpen, [key]: !this.volOpen[key] };
+    },
+
+    async loadBook() {
+      const res = await fetch(`/api/books/${this.bookId}`);
+      this.book = await res.json();
+    },
+
+    async loadStructure() {
+      const res = await fetch(`/api/books/${this.bookId}/structure`);
+      this.structure = await res.json();
+    },
+
+    async loadLatestJob() {
+      const res = await fetch(`/api/books/${this.bookId}/jobs/latest`);
+      if (!res.ok) return;
+      const job = await res.json();
+      if (!job) return;
+      if (['running', 'paused', 'completed'].includes(job.status)) {
+        this.activeJob = {
+          ...job,
+          done: job.done_count || 0,
+          failed: job.failed_count || 0,
+          total: job.total_count || 0,
+          current: null,
+        };
+        if (job.status === 'running') this.connectSSE(job.id);
+      }
+    },
+
+    pollParse() {
+      this.pollTimer = setInterval(async () => {
+        await this.loadBook();
+        if (this.book.parse_status !== 'parsing') {
+          clearInterval(this.pollTimer);
+          if (this.book.parse_status === 'done') {
+            await this.loadStructure();
+            this.initVolOpen();
+            await this.loadLatestJob();
+          }
+        }
+      }, 2000);
+    },
+
+    async updateEstimate() {
+      if (this.selectedIds.size === 0) { this.estimate = null; return; }
+      try {
+        const res = await fetch(`/api/books/${this.bookId}/estimate`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chapter_ids: [...this.selectedIds] }),
+        });
+        if (res.ok) this.estimate = await res.json();
+      } catch (e) { /* ignore */ }
+    },
+
+    jumpToVolume(id) {
+      // Ensure the volume is expanded
+      const key = id === 'vol-loose' ? 'loose' : parseInt(id.replace('vol-', ''));
+      if (this.volOpen[key] === false) this.toggleVolOpen(key);
+      this.$nextTick(() => {
+        const container = this.$refs.chapterTree;
+        const el = document.getElementById(id);
+        if (!el || !container) return;
+        const elTop = el.getBoundingClientRect().top;
+        const containerTop = container.getBoundingClientRect().top;
+        container.scrollTo({ top: container.scrollTop + (elTop - containerTop) - 8, behavior: 'smooth' });
+      });
+    },
+
+    toggleChapter(id) {
+      const s = new Set(this.selectedIds);
+      s.has(id) ? s.delete(id) : s.add(id);
+      this.selectedIds = s;
+    },
+    toggleVolume(vol) {
+      const s = new Set(this.selectedIds);
+      const allSelected = vol.chapters.every(c => s.has(c.id));
+      vol.chapters.forEach(c => allSelected ? s.delete(c.id) : s.add(c.id));
+      this.selectedIds = s;
+    },
+    toggleLoose() {
+      const s = new Set(this.selectedIds);
+      const chs = this.structure.loose_chapters;
+      const allSelected = chs.every(c => s.has(c.id));
+      chs.forEach(c => allSelected ? s.delete(c.id) : s.add(c.id));
+      this.selectedIds = s;
+    },
+    isVolumeChecked(vol) { return vol.chapters.length > 0 && vol.chapters.every(c => this.selectedIds.has(c.id)); },
+    isVolumeIndeterminate(vol) {
+      const cnt = vol.chapters.filter(c => this.selectedIds.has(c.id)).length;
+      return cnt > 0 && cnt < vol.chapters.length;
+    },
+    isLooseChecked() {
+      const chs = this.structure.loose_chapters;
+      return chs.length > 0 && chs.every(c => this.selectedIds.has(c.id));
+    },
+    isLooseIndeterminate() {
+      const chs = this.structure.loose_chapters;
+      const cnt = chs.filter(c => this.selectedIds.has(c.id)).length;
+      return cnt > 0 && cnt < chs.length;
+    },
+    countDone(chapters) { return chapters.filter(c => c.dehydrate_status === 'done').length; },
+
+    selectAllPending() {
+      const s = new Set(this.selectedIds);
+      this.allChapters().filter(c => c.dehydrate_status !== 'done').forEach(c => s.add(c.id));
+      this.selectedIds = s;
+    },
+    clearSelection() { this.selectedIds = new Set(); },
+
+    statusBadge(ch) {
+      if (ch.dehydrate_status === 'done') {
+        const pct = ch.compression_ratio ? Math.round(ch.compression_ratio * 100) : '';
+        return `✓${pct ? ' ' + pct + '%' : ''}`;
+      }
+      if (ch.dehydrate_status === 'failed') return '✗';
+      if (ch.dehydrate_status === 'processing') return '…';
+      return '';
+    },
+
+    async startDehydrate() {
+      if (this.selectedCount === 0) return;
+      const body = { scope_type: 'chapters', chapter_ids: [...this.selectedIds] };
+      const res = await fetch(`/api/books/${this.bookId}/jobs`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { alert('启动失败'); return; }
+      const job = await res.json();
+      this.activeJob = { ...job, done: 0, failed: 0, total: job.total_count, current: null };
+      this.clearSelection();
+      this.connectSSE(job.id);
+    },
+
+    async pauseJob() {
+      if (!this.activeJob) return;
+      await fetch(`/api/jobs/${this.activeJob.id}/pause`, { method: 'POST' });
+    },
+    async resumeJob() {
+      if (!this.activeJob) return;
+      await fetch(`/api/jobs/${this.activeJob.id}/resume`, { method: 'POST' });
+      this.activeJob.status = 'running';
+      this.connectSSE(this.activeJob.id);
+    },
+
+    connectSSE(jobId) {
+      if (this.sseSource) this.sseSource.close();
+      const es = new EventSource(`/api/jobs/${jobId}/stream`);
+      es.addEventListener('progress', e => {
+        const d = JSON.parse(e.data);
+        if (this.activeJob) {
+          this.activeJob.done = d.done;
+          this.activeJob.failed = d.failed;
+          this.activeJob.total = d.total;
+          this.activeJob.current = d.current;
+          this.activeJob.status = d.status || 'running';
+        }
+      });
+      es.addEventListener('chapter_done', e => {
+        const d = JSON.parse(e.data);
+        this.updateChapterStatus(d.chapter_id, 'done', d.compression_ratio);
+        if (this.activeJob) this.activeJob.done++;
+      });
+      es.addEventListener('chapter_failed', e => {
+        const d = JSON.parse(e.data);
+        this.updateChapterStatus(d.chapter_id, 'failed');
+        if (this.activeJob) this.activeJob.failed++;
+      });
+      es.addEventListener('job_status', e => {
+        const d = JSON.parse(e.data);
+        if (this.activeJob) this.activeJob.status = d.status;
+        if (['paused', 'cancelled', 'failed'].includes(d.status)) es.close();
+      });
+      es.addEventListener('done', e => {
+        const d = JSON.parse(e.data);
+        if (this.activeJob) {
+          this.activeJob.status = 'completed';
+          this.activeJob.done = d.done;
+          this.activeJob.failed = d.failed;
+        }
+        es.close();
+      });
+      es.onerror = () => { /* browser will retry */ };
+      this.sseSource = es;
+    },
+
+    updateChapterStatus(chapId, status, ratio) {
+      const update = ch => {
+        if (ch.id === chapId) {
+          ch.dehydrate_status = status;
+          if (ratio != null) ch.compression_ratio = ratio;
+        }
+      };
+      this.structure.volumes.forEach(v => v.chapters.forEach(update));
+      this.structure.loose_chapters.forEach(update);
+    },
+  };
+}
+</script>
+</body>
+</html>

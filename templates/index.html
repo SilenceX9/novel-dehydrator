@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小说速读</title>
+  <script>
+    (function() {
+      const t = localStorage.getItem('theme');
+      const dark = t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (dark) document.documentElement.classList.add('dark');
+      if (!t) {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+          document.documentElement.classList.toggle('dark', e.matches);
+        });
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    /* Page-local */
+    .hero {
+      padding: 56px 0 36px;
+      text-align: center;
+    }
+    .hero h1 {
+      font-size: clamp(36px, 5.6vw, 56px);
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      line-height: 1.05;
+      background: linear-gradient(180deg, var(--text) 0%, var(--text-2) 130%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .hero p {
+      margin: 14px auto 0;
+      max-width: 540px;
+      font-size: 17px;
+      color: var(--text-2);
+      letter-spacing: -0.005em;
+    }
+
+    .shelf-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 18px;
+    }
+    @media (max-width: 640px) {
+      .shelf-grid { grid-template-columns: repeat(2, 1fr); gap: 14px; }
+      .hero { padding: 32px 0 24px; }
+    }
+
+    .book-card {
+      position: relative;
+      padding: 20px 20px 18px;
+      cursor: pointer;
+      overflow: hidden;
+    }
+    .book-card[data-disabled="true"] { cursor: default; }
+    .book-card:hover .book-cover { transform: rotateY(-8deg) translateY(-2px); }
+    .book-card:hover .delete-btn { opacity: 1; transform: translateY(0); }
+
+    .book-cover {
+      width: 78px; height: 104px;
+      border-radius: 4px 8px 8px 4px;
+      background: linear-gradient(135deg, #5e8bd6 0%, #2e5db4 100%);
+      box-shadow:
+        inset 4px 0 0 rgba(0,0,0,0.18),
+        inset 6px 0 1px rgba(255,255,255,0.08),
+        4px 6px 14px rgba(0,0,0,0.18);
+      display: flex; align-items: flex-end; justify-content: center;
+      padding: 6px 0;
+      transform-origin: left center;
+      transition: transform 0.45s var(--ease-apple);
+      margin-bottom: 14px;
+    }
+    .book-cover.fmt-epub { background: linear-gradient(135deg, #5e8bd6 0%, #2e5db4 100%); }
+    .book-cover.fmt-txt  { background: linear-gradient(135deg, #6e6e73 0%, #3a3a3c 100%); }
+    .book-cover-label {
+      font-size: 9.5px; font-weight: 600;
+      color: rgba(255,255,255,0.85);
+      letter-spacing: 0.12em;
+    }
+
+    .book-title {
+      font-size: 14.5px; font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.01em;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin-bottom: 4px;
+      min-height: 2.7em;
+    }
+    .book-author { font-size: 12px; color: var(--text-2); }
+    .book-meta { font-size: 11.5px; color: var(--text-3); margin-top: 8px; }
+
+    .book-progress-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 10px;
+      font-size: 11px; color: var(--text-3);
+    }
+    .book-progress-row .progress { flex: 1; }
+
+    .status-corner {
+      position: absolute; top: 12px; right: 12px;
+    }
+
+    .delete-btn {
+      position: absolute; bottom: 14px; right: 14px;
+      opacity: 0; transform: translateY(4px);
+      transition: all 0.18s var(--ease-apple);
+      color: var(--text-3);
+      font-size: 11px;
+      background: var(--surface-2);
+      padding: 4px 10px;
+      border-radius: 980px;
+      border: none; cursor: pointer;
+    }
+    .delete-btn:hover { color: var(--danger); background: rgba(215,0,21,0.1); }
+
+    .empty {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--text-3);
+    }
+    .empty-icon {
+      width: 64px; height: 64px;
+      margin: 0 auto 18px;
+      border-radius: 16px;
+      background: var(--surface-2);
+      display: grid; place-content: center;
+      color: var(--text-3);
+    }
+    .empty h3 { font-size: 18px; color: var(--text); font-weight: 500; margin-bottom: 6px; }
+    .empty p { font-size: 14px; color: var(--text-2); }
+
+    /* Drop zone */
+    .dropzone {
+      border: 1.5px dashed var(--border-strong);
+      border-radius: var(--radius);
+      padding: 38px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s var(--ease-apple);
+      background: var(--surface-2);
+    }
+    .dropzone:hover, .dropzone.drag {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .dropzone-icon {
+      width: 44px; height: 44px;
+      margin: 0 auto 12px;
+      border-radius: 12px;
+      background: var(--surface);
+      display: grid; place-content: center;
+      color: var(--accent);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .status-dot {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--text-2);
+      padding: 6px 12px;
+      border-radius: 980px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .status-dot:hover { background: var(--surface-2); }
+    .status-dot::before {
+      content: ''; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--success);
+    }
+    .status-dot.warn::before { background: var(--warning); }
+  </style>
+</head>
+<body x-data="bookShelf()" x-init="init()" x-cloak>
+
+  <!-- Glass nav -->
+  <header class="nav-glass">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text);">
+        <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v18H6.5a2.5 2.5 0 0 0 0 5H20"/>
+        <path d="M4 4.5v15A2.5 2.5 0 0 0 6.5 22"/>
+      </svg>
+      <span class="nav-title">小说速读</span>
+    </div>
+
+    <div style="flex:1"></div>
+
+    <div class="status-dot" :class="{ warn: !apiKeyOk }" @click="openSettings()" :title="apiKeyOk ? 'API 已配置' : '点击配置 API Key'">
+      <span x-text="apiKeyOk ? 'API 已就绪' : '未配置 API'"></span>
+    </div>
+
+    <button class="icon-btn" @click="openSettings()" title="设置">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+
+    <button class="icon-btn" @click="toggleDark()" :title="isDark ? '切换浅色' : '切换深色'">
+      <svg x-show="!isDark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg x-show="isDark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    </button>
+
+    <button class="btn btn-primary" @click="showUpload = true">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      导入书籍
+    </button>
+  </header>
+
+  <main style="max-width: 1180px; margin: 0 auto; padding: 0 24px 80px;">
+
+    <section class="hero">
+      <h1>把厚书读薄</h1>
+      <p>上传 EPUB 或 TXT，让 AI 提炼章节核心，保留故事骨架，跳过水文铺垫。</p>
+    </section>
+
+    <!-- Empty -->
+    <div x-show="books.length === 0 && !loading" class="empty fade-in">
+      <div class="empty-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v18H6.5a2.5 2.5 0 0 0 0 5H20"/>
+        </svg>
+      </div>
+      <h3>书架是空的</h3>
+      <p>点击右上角「导入书籍」开始</p>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="empty">
+      <p>加载中…</p>
+    </div>
+
+    <!-- Grid -->
+    <div class="shelf-grid stagger" x-show="books.length > 0">
+      <template x-for="book in books" :key="book.id">
+        <article class="card-elev book-card"
+          :data-disabled="book.parse_status !== 'done'"
+          @click="book.parse_status === 'done' && (window.location.href = `/book/${book.id}`)">
+
+          <div class="status-corner">
+            <span x-show="book.parse_status === 'parsing'" class="pill pill-info">
+              <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;margin-right:5px;animation:pulse 1.4s ease-in-out infinite;"></span>
+              解析中
+            </span>
+            <span x-show="book.parse_status === 'failed'" class="pill pill-danger">解析失败</span>
+          </div>
+
+          <div class="book-cover" :class="`fmt-${book.source_format}`">
+            <span class="book-cover-label" x-text="book.source_format.toUpperCase()"></span>
+          </div>
+
+          <h3 class="book-title" x-text="book.title"></h3>
+          <p class="book-author" x-text="book.author || '未知作者'"></p>
+          <p class="book-meta" x-text="`${book.total_chapters} 章`"></p>
+
+          <div class="book-progress-row" x-show="book.total_chapters > 0">
+            <div class="progress thin">
+              <div :style="`width: ${book.total_chapters > 0 ? Math.round((book.dehydrated_count || 0) / book.total_chapters * 100) : 0}%`"></div>
+            </div>
+            <span x-text="`${book.dehydrated_count || 0}/${book.total_chapters}`"></span>
+          </div>
+
+          <button class="delete-btn" @click.stop="confirmDelete(book)" title="删除">删除</button>
+        </article>
+      </template>
+    </div>
+  </main>
+
+  <!-- Settings Modal -->
+  <div x-show="showSettings" x-cloak class="modal-backdrop" @click.self="showSettings = false" @keydown.escape.window="showSettings = false">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h2 class="modal-title">设置</h2>
+      </div>
+      <div class="modal-body">
+        <div class="segmented" style="margin-bottom: 22px;">
+          <button :class="{ active: settingsTab === 'api' }" @click="settingsTab = 'api'">API 配置</button>
+          <button :class="{ active: settingsTab === 'prompt' }" @click="settingsTab = 'prompt'">脱水提示词</button>
+        </div>
+
+        <!-- API Tab -->
+        <div x-show="settingsTab === 'api'" style="display:flex;flex-direction:column;gap:16px;">
+          <div>
+            <label class="label">API Key</label>
+            <div style="position:relative;">
+              <input :type="showApiKey ? 'text' : 'password'" class="input" style="padding-right:60px;" x-model="settingsForm.deepseek_api_key" placeholder="sk-...">
+              <button @click="showApiKey = !showApiKey" type="button" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-2);font-size:12px;cursor:pointer;padding:4px 8px;border-radius:6px;" x-text="showApiKey ? '隐藏' : '显示'"></button>
+            </div>
+          </div>
+
+          <div>
+            <label class="label">模型</label>
+            <select class="select" x-model="settingsForm.deepseek_model">
+              <option value="deepseek-v4-flash">deepseek-v4-flash（快速）</option>
+              <option value="deepseek-v4-pro">deepseek-v4-pro（精细）</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="label">Base URL</label>
+            <input type="text" class="input" x-model="settingsForm.deepseek_base_url" placeholder="https://api.deepseek.com">
+            <p class="help">使用第三方中转时修改此项</p>
+          </div>
+
+          <div>
+            <label class="label">并行数</label>
+            <input type="number" class="input" x-model.number="settingsForm.concurrency" min="1" max="500">
+            <p class="help">同时处理的章节数（1-500），默认 20。越大越快但消耗更多 API 额度，请根据 API 限流情况调整。</p>
+          </div>
+        </div>
+
+        <!-- Prompt Tab -->
+        <div x-show="settingsTab === 'prompt'" style="display:flex;flex-direction:column;gap:14px;">
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <label class="label" style="margin:0;">系统提示词</label>
+              <div style="display:flex;align-items:center;gap:12px;">
+                <span x-show="!settingsForm.system_prompt" class="pill pill-success">内置默认</span>
+                <span x-show="settingsForm.system_prompt" class="pill pill-info">自定义</span>
+                <button @click="resetSystemPrompt()" style="background:none;border:none;color:var(--text-3);font-size:12px;cursor:pointer;" onmouseover="this.style.color='var(--danger)'" onmouseout="this.style.color='var(--text-3)'">恢复默认</button>
+              </div>
+            </div>
+            <textarea class="textarea" x-model="promptEditorContent" rows="14" placeholder="加载中…" style="font-family: var(--font-mono); font-size:12.5px; line-height:1.65;"></textarea>
+            <p class="help">修改后仅影响新的脱水任务。</p>
+          </div>
+
+          <details>
+            <summary style="cursor:pointer;list-style:none;font-size:12px;color:var(--text-2);padding:8px 0;display:flex;align-items:center;gap:6px;user-select:none;">
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" style="transition:transform 0.2s;"><path d="M4 2l4 4-4 4z"/></svg>
+              查看其他内置提示词
+            </summary>
+            <div style="margin-top:12px;display:flex;flex-direction:column;gap:14px;">
+              <div>
+                <p class="label">用户消息模板</p>
+                <pre style="font-family:var(--font-mono);font-size:11.5px;background:var(--surface-2);border-radius:10px;padding:12px;color:var(--text-2);overflow-x:auto;white-space:pre-wrap;line-height:1.6;margin:0;" x-text="defaultPrompts?.user || '加载中…'"></pre>
+              </div>
+              <div>
+                <p class="label">早期章节额外提示</p>
+                <pre style="font-family:var(--font-mono);font-size:11.5px;background:var(--surface-2);border-radius:10px;padding:12px;color:var(--text-2);overflow-x:auto;white-space:pre-wrap;line-height:1.6;margin:0;" x-text="defaultPrompts?.position_early || '加载中…'"></pre>
+              </div>
+              <div>
+                <p class="label">正常章节提示</p>
+                <pre style="font-family:var(--font-mono);font-size:11.5px;background:var(--surface-2);border-radius:10px;padding:12px;color:var(--text-2);overflow-x:auto;white-space:pre-wrap;line-height:1.6;margin:0;" x-text="defaultPrompts?.position_normal || '加载中…'"></pre>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <div x-show="settingsSaved" style="margin-top:14px; font-size:12.5px; color:var(--success); display:flex;align-items:center;gap:6px;">✓ 已保存</div>
+        <div x-show="settingsError" style="margin-top:14px; font-size:12.5px; color:var(--danger);" x-text="settingsError"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" @click="showSettings = false">取消</button>
+        <button class="btn btn-primary" @click="saveSettings()" :disabled="savingSettings">
+          <span x-text="savingSettings ? '保存中…' : '保存'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload Modal -->
+  <div x-show="showUpload" x-cloak class="modal-backdrop" @click.self="showUpload = false" @keydown.escape.window="showUpload = false">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 class="modal-title">导入书籍</h2>
+      </div>
+      <div class="modal-body">
+        <div class="dropzone" :class="{ drag: isDragging }"
+          @click="$refs.fileInput.click()"
+          @dragover.prevent="isDragging = true"
+          @dragleave.prevent="isDragging = false"
+          @drop.prevent="isDragging = false; handleDrop($event)">
+          <div class="dropzone-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+          </div>
+          <p style="font-size:14px;color:var(--text);font-weight:500;margin:0 0 4px;">拖拽文件到此处</p>
+          <p style="font-size:12px;color:var(--text-3);margin:0;">或点击选择 · 支持 .epub 和 .txt</p>
+          <input x-ref="fileInput" type="file" accept=".epub,.txt" style="display:none;" @change="handleFile($event)">
+        </div>
+        <div x-show="uploading" style="margin-top:14px;text-align:center;font-size:12.5px;color:var(--accent);">
+          <span>正在上传并解析…</span>
+        </div>
+        <div x-show="uploadError" style="margin-top:12px;font-size:12.5px;color:var(--danger);" x-text="uploadError"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete confirm -->
+  <div x-show="deleteTarget" x-cloak class="modal-backdrop" @click.self="deleteTarget = null" @keydown.escape.window="deleteTarget = null">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 class="modal-title">删除书籍</h2>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13.5px;color:var(--text-2);margin:0;line-height:1.55;">
+          确定要删除《<span x-text="deleteTarget?.title" style="color:var(--text);font-weight:500;"></span>》吗？此操作无法撤销，已脱水的内容也会一并删除。
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" @click="deleteTarget = null">取消</button>
+        <button class="btn btn-danger" @click="doDelete()">删除</button>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    details[open] > summary svg { transform: rotate(90deg); }
+  </style>
+
+<script>
+function bookShelf() {
+  return {
+    books: [], loading: true,
+    showUpload: false, uploading: false, uploadError: '', isDragging: false,
+    deleteTarget: null,
+    pollTimers: {},
+    isDark: document.documentElement.classList.contains('dark'),
+    showSettings: false, showApiKey: false, apiKeyOk: false,
+    settingsTab: 'api',
+    settingsForm: {
+      deepseek_api_key: '', deepseek_model: 'deepseek-v4-flash',
+      deepseek_base_url: 'https://api.deepseek.com',
+      concurrency: 20, system_prompt: '',
+    },
+    savingSettings: false, settingsSaved: false, settingsError: '',
+    defaultPrompts: null, promptEditorContent: '',
+
+    async init() {
+      await Promise.all([this.loadBooks(), this.loadSettings()]);
+      this.loading = false;
+      this.$watch('settingsTab', v => { if (v === 'prompt') this.onPromptTabOpen(); });
+    },
+
+    toggleDark() {
+      this.isDark = !this.isDark;
+      document.documentElement.classList.toggle('dark', this.isDark);
+      localStorage.setItem('theme', this.isDark ? 'dark' : 'light');
+    },
+
+    async loadSettings() {
+      try {
+        const res = await fetch('/api/settings');
+        const data = await res.json();
+        this.settingsForm = { ...data };
+        this.apiKeyOk = !!(data.deepseek_api_key && data.deepseek_api_key.trim());
+        this.promptEditorContent = data.system_prompt || '';
+      } catch (e) { /* ignore */ }
+    },
+
+    async onPromptTabOpen() {
+      if (!this.defaultPrompts) {
+        try {
+          const res = await fetch('/api/prompts/defaults');
+          if (res.ok) this.defaultPrompts = await res.json();
+        } catch (e) { /* ignore */ }
+      }
+      if (!this.promptEditorContent && this.defaultPrompts) {
+        this.promptEditorContent = this.defaultPrompts.system;
+      }
+    },
+
+    resetSystemPrompt() {
+      this.settingsForm.system_prompt = '';
+      this.promptEditorContent = this.defaultPrompts?.system || '';
+    },
+
+    openSettings() {
+      this.settingsSaved = false; this.settingsError = '';
+      this.settingsTab = 'api'; this.showSettings = true;
+    },
+
+    async saveSettings() {
+      this.savingSettings = true; this.settingsSaved = false; this.settingsError = '';
+      try {
+        const isDefaultContent = this.defaultPrompts && this.promptEditorContent === this.defaultPrompts.system;
+        const effectivePrompt = isDefaultContent ? '' : this.promptEditorContent;
+        const payload = { ...this.settingsForm, system_prompt: effectivePrompt };
+        const res = await fetch('/api/settings', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('保存失败');
+        this.settingsForm.system_prompt = effectivePrompt;
+        this.settingsSaved = true;
+        this.apiKeyOk = !!(this.settingsForm.deepseek_api_key && this.settingsForm.deepseek_api_key.trim());
+        setTimeout(() => { this.settingsSaved = false; }, 2500);
+      } catch (e) { this.settingsError = e.message; }
+      finally { this.savingSettings = false; }
+    },
+
+    async loadBooks() {
+      const res = await fetch('/api/books');
+      const data = await res.json();
+      this.books = data;
+      data.filter(b => b.parse_status === 'parsing').forEach(b => this.pollParse(b.id));
+    },
+
+    pollParse(bookId) {
+      if (this.pollTimers[bookId]) return;
+      this.pollTimers[bookId] = setInterval(async () => {
+        const res = await fetch(`/api/books/${bookId}`);
+        const updated = await res.json();
+        const idx = this.books.findIndex(b => b.id === bookId);
+        if (idx >= 0) this.books[idx] = { ...this.books[idx], ...updated };
+        if (updated.parse_status !== 'parsing') {
+          clearInterval(this.pollTimers[bookId]);
+          delete this.pollTimers[bookId];
+        }
+      }, 2000);
+    },
+
+    async handleFile(e) {
+      const file = e.target.files[0];
+      if (file) await this.upload(file);
+    },
+
+    async handleDrop(e) {
+      const file = e.dataTransfer.files[0];
+      if (file) await this.upload(file);
+    },
+
+    async upload(file) {
+      this.uploading = true; this.uploadError = '';
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const res = await fetch('/api/books/upload', { method: 'POST', body: fd });
+        if (!res.ok) {
+          const err = await res.json();
+          this.uploadError = err.detail || '上传失败';
+          return;
+        }
+        const data = await res.json();
+        this.showUpload = false;
+        await this.loadBooks();
+        if (data.parse_status === 'parsing') this.pollParse(data.book_id);
+      } catch (err) {
+        this.uploadError = '网络错误：' + err.message;
+      } finally { this.uploading = false; }
+    },
+
+    confirmDelete(book) { this.deleteTarget = book; },
+
+    async doDelete() {
+      if (!this.deleteTarget) return;
+      await fetch(`/api/books/${this.deleteTarget.id}`, { method: 'DELETE' });
+      this.books = this.books.filter(b => b.id !== this.deleteTarget.id);
+      this.deleteTarget = null;
+    },
+  };
+}
+</script>
+</body>
+</html>

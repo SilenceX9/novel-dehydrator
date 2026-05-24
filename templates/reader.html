@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>阅读 — 小说速读</title>
+  <script>
+    (function() {
+      const t = localStorage.getItem('theme');
+      const dark = t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (dark) document.documentElement.classList.add('dark');
+      if (!t) {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+          document.documentElement.classList.toggle('dark', e.matches);
+        });
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    body { background: var(--bg); overflow: hidden; }
+
+    .reader-shell {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      height: 100vh;
+    }
+    @media (max-width: 820px) {
+      .reader-shell { grid-template-columns: 1fr; }
+      .reader-sidebar { display: none; }
+      .reader-sidebar.mobile-open {
+        display: flex;
+        position: fixed; inset: 0; z-index: 60;
+        background: var(--surface);
+      }
+    }
+
+    /* ── Sidebar ───────────────────────────────────────── */
+    .reader-sidebar {
+      background: var(--surface-2);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-top {
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .book-title-mini {
+      font-size: 14px; font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.012em;
+      line-height: 1.35;
+      display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .sidebar-progress {
+      font-size: 11px; color: var(--text-3);
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .sidebar-filter {
+      display: flex; gap: 6px;
+      margin-top: 6px;
+    }
+    .filter-chip {
+      flex: 1;
+      padding: 5px 10px;
+      font-size: 11.5px; font-weight: 500;
+      background: transparent;
+      color: var(--text-2);
+      border: 1px solid var(--border-strong);
+      border-radius: 980px; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .filter-chip:hover { color: var(--text); }
+    .filter-chip.active {
+      background: var(--text); color: var(--surface); border-color: var(--text);
+    }
+
+    .ch-nav-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 10px 16px;
+    }
+    .ch-nav-item {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%;
+      padding: 7px 10px;
+      background: transparent; border: none;
+      border-radius: 8px;
+      font: inherit; font-size: 12.5px; color: var(--text-2);
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s;
+      margin-bottom: 1px;
+      letter-spacing: -0.005em;
+    }
+    .ch-nav-item:hover { background: var(--surface); color: var(--text); }
+    .ch-nav-item.active {
+      background: var(--accent); color: #fff;
+      font-weight: 500;
+    }
+    .ch-nav-item.active .done-mark { color: rgba(255,255,255,0.85); }
+    .ch-nav-item .done-mark {
+      flex-shrink: 0;
+      width: 10px;
+      color: var(--success);
+      font-size: 10px;
+    }
+    .ch-nav-item span.t {
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* ── Main reader area ───────────────────────────── */
+    .reader-main {
+      position: relative;
+      overflow-y: auto;
+      height: 100vh;
+      scroll-behavior: smooth;
+    }
+
+    /* Floating top bar */
+    .reader-topbar {
+      position: sticky; top: 0; z-index: 30;
+      height: 52px;
+      padding: 0 22px;
+      display: flex; align-items: center; gap: 10px;
+      background: rgba(251, 251, 253, 0.78);
+      backdrop-filter: var(--nav-blur);
+      -webkit-backdrop-filter: var(--nav-blur);
+      border-bottom: 1px solid var(--border);
+      transition: transform 0.32s var(--ease-apple), opacity 0.32s var(--ease-apple);
+    }
+    .dark .reader-topbar { background: rgba(22, 22, 23, 0.78); }
+    .reader-topbar.hidden-bar {
+      transform: translateY(-100%); opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Reading area */
+    .reading-wrap {
+      max-width: var(--reading-width, 720px);
+      margin: 0 auto;
+      padding: 56px 32px 120px;
+      transition: max-width 0.3s var(--ease-apple);
+    }
+    @media (max-width: 600px) {
+      .reading-wrap { padding: 32px 22px 100px; }
+    }
+
+    .reading-meta {
+      font-size: 12px; color: var(--text-3);
+      margin-bottom: 14px;
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .chapter-title {
+      font-size: clamp(26px, 3.6vw, 36px);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 36px;
+      color: var(--text);
+    }
+
+    .reading-text {
+      font-size: var(--reading-fs, 17px);
+      line-height: var(--reading-lh, 1.85);
+      color: var(--text);
+      letter-spacing: 0.002em;
+      font-family: var(--reading-font, var(--font-sans));
+    }
+    .reading-text p {
+      margin: 0 0 1.1em;
+      text-indent: 2em;
+    }
+
+    /* Skip mark */
+    .reading-text details.skip-details { display: block; margin: 1.2em 0; }
+    .reading-text details.skip-details > summary {
+      display: block; list-style: none;
+      padding: 10px 14px;
+      background: var(--warning-bg);
+      border-left: 3px solid var(--warning);
+      color: var(--warning);
+      font-size: 13px;
+      font-family: var(--font-sans);
+      letter-spacing: -0.005em;
+      border-radius: 0 8px 8px 0;
+      cursor: pointer;
+      user-select: none;
+      text-indent: 0;
+      transition: filter 0.18s;
+    }
+    .reading-text details.skip-details > summary:hover { filter: brightness(0.96); }
+    .reading-text details.skip-details > summary::-webkit-details-marker { display: none; }
+    .reading-text details.skip-details > summary::before {
+      content: '▸ '; font-size: 11px; opacity: 0.7; margin-right: 4px;
+    }
+    .reading-text details[open].skip-details > summary::before { content: '▾ '; }
+
+    .reading-text .skip-mark {
+      display: block;
+      margin: 1.1em 0;
+      padding: 10px 14px;
+      background: var(--warning-bg);
+      border-left: 3px solid var(--warning);
+      color: var(--warning);
+      font-size: 13px;
+      font-family: var(--font-sans);
+      border-radius: 0 8px 8px 0;
+      text-indent: 0;
+    }
+    .reading-text details.skip-details .skip-raw {
+      margin-top: 6px;
+      padding: 14px 18px;
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      border-radius: 0 8px 8px 8px;
+      font-size: 0.92em;
+      line-height: 1.85;
+      color: var(--warning);
+      white-space: pre-wrap;
+      opacity: 0.92;
+      text-indent: 0;
+    }
+
+    /* Chapter nav at bottom */
+    .chapter-nav {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 64px; padding-top: 28px;
+      border-top: 1px solid var(--border);
+    }
+    .chapter-nav-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 13px; color: var(--accent);
+      background: none; border: none;
+      cursor: pointer; padding: 8px 4px;
+      transition: all 0.15s;
+      font-weight: 500;
+    }
+    .chapter-nav-btn:hover { gap: 10px; }
+    .chapter-nav-btn:disabled { color: var(--text-3); cursor: not-allowed; }
+    .chapter-nav-btn:disabled:hover { gap: 6px; }
+    .chapter-nav-pos {
+      font-size: 12px; color: var(--text-3);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .alert-unhydrated {
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      color: var(--warning);
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      margin-bottom: 24px;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    /* ── Reader settings popover ─────────────────────────── */
+    .settings-popover {
+      position: absolute; top: calc(100% + 8px); right: 22px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      padding: 16px;
+      min-width: 280px;
+      z-index: 40;
+      animation: pop-in 0.2s var(--ease-apple);
+    }
+    @keyframes pop-in {
+      from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+      to { opacity: 1; transform: none; }
+    }
+    .settings-group {
+      margin-bottom: 14px;
+    }
+    .settings-group:last-child { margin-bottom: 0; }
+    .settings-group-label {
+      font-size: 11px; font-weight: 500;
+      color: var(--text-3);
+      letter-spacing: 0.04em; text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    /* ── Chat panel ──────────────────────────────────────── */
+    .chat-panel {
+      position: fixed; top: 0; right: 0; bottom: 0;
+      width: 380px;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      box-shadow: -8px 0 30px rgba(0,0,0,0.06);
+      display: flex; flex-direction: column;
+      z-index: 50;
+      transition: transform 0.36s var(--ease-apple);
+    }
+    .chat-panel.closed { transform: translateX(100%); }
+    .dark .chat-panel { box-shadow: -8px 0 30px rgba(0,0,0,0.4); }
+    @media (max-width: 600px) {
+      .chat-panel { width: 100%; }
+    }
+
+    .chat-head {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .chat-head h3 { font-size: 14px; font-weight: 600; }
+
+    .chat-msgs {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 18px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .chat-empty {
+      text-align: center;
+      color: var(--text-3);
+      padding: 40px 16px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .chat-empty svg { margin: 0 auto 12px; color: var(--text-3); opacity: 0.6; }
+
+    .bubble {
+      max-width: 88%;
+      padding: 10px 14px;
+      border-radius: 18px;
+      font-size: 14px;
+      line-height: 1.55;
+      letter-spacing: -0.003em;
+      white-space: pre-wrap; word-wrap: break-word;
+      animation: bubble-in 0.22s var(--ease-apple);
+    }
+    @keyframes bubble-in {
+      from { opacity: 0; transform: translateY(4px) scale(0.98); }
+      to { opacity: 1; transform: none; }
+    }
+    .bubble.user {
+      align-self: flex-end;
+      background: var(--accent); color: #fff;
+      border-bottom-right-radius: 6px;
+    }
+    .bubble.assistant {
+      align-self: flex-start;
+      background: var(--surface-2); color: var(--text);
+      border-bottom-left-radius: 6px;
+    }
+    .bubble.loading {
+      align-self: flex-start;
+      background: var(--surface-2); color: var(--text-3);
+      border-bottom-left-radius: 6px;
+      display: flex; gap: 4px;
+    }
+    .bubble.loading span {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: currentColor;
+      animation: dot 1.4s infinite ease-in-out both;
+    }
+    .bubble.loading span:nth-child(1) { animation-delay: -0.32s; }
+    .bubble.loading span:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes dot {
+      0%, 80%, 100% { transform: scale(0); }
+      40% { transform: scale(1); }
+    }
+
+    .chat-input-area {
+      padding: 14px 18px 18px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .chat-input-area .row {
+      display: flex; gap: 8px; align-items: flex-end;
+    }
+    .chat-input-area textarea {
+      flex: 1;
+      min-height: 38px; max-height: 120px;
+      resize: none;
+      background: var(--surface-2);
+      border: 1px solid transparent;
+      border-radius: 18px;
+      padding: 10px 14px;
+      font: inherit; font-size: 13.5px;
+      color: var(--text);
+      transition: all 0.15s;
+    }
+    .chat-input-area textarea:focus {
+      outline: none; background: var(--surface);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    .chat-send {
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      background: var(--accent); color: #fff;
+      border: none; cursor: pointer;
+      display: grid; place-content: center;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+    .chat-send:hover:not(:disabled) { background: var(--accent-hover); }
+    .chat-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Reading progress indicator (top thin bar) */
+    .read-progress {
+      position: fixed; top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--accent);
+      transform-origin: left;
+      transform: scaleX(var(--read-pct, 0));
+      z-index: 55;
+      transition: transform 0.1s linear;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body x-data="reader({{ book_id }})" x-init="init()" x-cloak>
+
+  <div class="read-progress" :style="`--read-pct: ${readPct}`"></div>
+
+  <div class="reader-shell">
+
+    <!-- Sidebar: chapter list -->
+    <aside class="reader-sidebar" :class="{ 'mobile-open': mobileTocOpen }">
+      <div class="sidebar-top">
+        <a :href="`/book/${bookId}`" class="nav-back" style="margin: 0 0 10px;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          返回详情
+        </a>
+        <div class="book-title-mini" x-text="book.title || '加载中…'"></div>
+        <div class="sidebar-progress">
+          <span x-text="`共 ${allChapters.length} 章`"></span>
+          <span x-show="currentIndexInDisplay >= 0" x-text="`${currentIndexInDisplay + 1} / ${displayChapters.length}`"></span>
+        </div>
+        <div class="sidebar-filter">
+          <button class="filter-chip" :class="{ active: !onlyDone }" @click="onlyDone = false">全部</button>
+          <button class="filter-chip" :class="{ active: onlyDone }" @click="onlyDone = true">已脱水</button>
+        </div>
+      </div>
+
+      <div class="ch-nav-list">
+        <template x-for="ch in displayChapters" :key="ch.id">
+          <button class="ch-nav-item" :class="{ active: currentChapter?.id === ch.id }" @click="loadChapter(ch); mobileTocOpen = false">
+            <span class="done-mark" x-text="ch.dehydrate_status === 'done' ? '✓' : ''"></span>
+            <span class="t" x-text="ch.title"></span>
+          </button>
+        </template>
+      </div>
+    </aside>
+
+    <!-- Main reader -->
+    <div class="reader-main" x-ref="readerMain" @scroll.passive="onScroll">
+
+      <div class="reader-topbar" :class="{ 'hidden-bar': topbarHidden }">
+        <button class="icon-btn" @click="mobileTocOpen = !mobileTocOpen" style="display:none;" :style="window.innerWidth <= 820 ? '' : 'display:none;'">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        </button>
+
+        <span class="nav-title" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="currentChapter?.title || book.title || ''"></span>
+
+        <div style="position:relative;">
+          <button class="icon-btn" @click="settingsOpen = !settingsOpen" title="阅读设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+          </button>
+          <div x-show="settingsOpen" x-cloak @click.outside="settingsOpen = false" class="settings-popover">
+            <div class="settings-group">
+              <div class="settings-group-label">字号</div>
+              <div class="segmented">
+                <button :class="{ active: fontSize === 15 }" @click="setFontSize(15)" style="font-size:13px;">小</button>
+                <button :class="{ active: fontSize === 17 }" @click="setFontSize(17)" style="font-size:14px;">中</button>
+                <button :class="{ active: fontSize === 19 }" @click="setFontSize(19)" style="font-size:15px;">大</button>
+                <button :class="{ active: fontSize === 21 }" @click="setFontSize(21)" style="font-size:16px;">特大</button>
+              </div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-label">字体</div>
+              <div class="segmented">
+                <button :class="{ active: fontFamily === 'sans' }" @click="setFontFamily('sans')">无衬线</button>
+                <button :class="{ active: fontFamily === 'serif' }" @click="setFontFamily('serif')" style="font-family: var(--font-serif);">宋体</button>
+              </div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-label">页宽</div>
+              <div class="segmented">
+                <button :class="{ active: pageWidth === 600 }" @click="setPageWidth(600)">窄</button>
+                <button :class="{ active: pageWidth === 720 }" @click="setPageWidth(720)">中</button>
+                <button :class="{ active: pageWidth === 880 }" @click="setPageWidth(880)">宽</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button class="icon-btn" @click="toggleDark()" :title="isDark ? '切换浅色' : '切换深色'">
+          <svg x-show="!isDark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg x-show="isDark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        </button>
+
+        <!-- Raw/Dehydrated toggle — only shown for dehydrated chapters -->
+        <button x-show="currentChapter?.dehydrate_status === 'done'"
+          class="btn btn-sm btn-secondary"
+          @click="showRaw = !showRaw; currentText = showRaw ? rawText : dehydratedText"
+          :style="showRaw ? 'background: var(--surface-3);' : ''"
+          :title="showRaw ? '当前显示原文，点击切回脱水版' : '切换到原文'">
+          <span x-text="showRaw ? '原文' : '脱水版'"></span>
+        </button>
+
+        <button class="icon-btn" @click="chatOpen = !chatOpen" :title="chatOpen ? '关闭问答' : '打开问答'" :style="chatOpen ? 'color: var(--accent); background: var(--accent-soft);' : ''">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        </button>
+      </div>
+
+      <!-- Loading -->
+      <div x-show="loading" style="display:flex; align-items:center; justify-content:center; height:300px; color: var(--text-3); font-size: 14px;">
+        加载中…
+      </div>
+
+      <!-- No chapter -->
+      <div x-show="!loading && !currentChapter" style="display:flex; align-items:center; justify-content:center; height:300px; color: var(--text-3); font-size: 14px;">
+        从左侧选择章节开始阅读
+      </div>
+
+      <!-- Reading -->
+      <article x-show="currentChapter && !loading" class="reading-wrap" :style="`--reading-width: ${pageWidth}px; --reading-fs: ${fontSize}px; --reading-font: ${fontFamily === 'serif' ? 'var(--font-serif)' : 'var(--font-sans)'};`">
+        <div class="reading-meta" x-show="currentChapter">
+          <span x-text="`第 ${currentIndexInDisplay + 1} 章 · 共 ${displayChapters.length} 章`"></span>
+        </div>
+        <h1 class="chapter-title" x-text="currentChapter?.title"></h1>
+
+        <div x-show="currentChapter?.dehydrate_status !== 'done'" class="alert-unhydrated">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+          此章节尚未脱水，显示原文
+        </div>
+
+        <div class="reading-text" x-html="formatText(currentText, rawText)"></div>
+
+        <div class="chapter-nav">
+          <button class="chapter-nav-btn" @click="prevChapter()" :disabled="!hasPrev">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            上一章
+          </button>
+          <span class="chapter-nav-pos" x-text="`${currentIndexInDisplay + 1} / ${displayChapters.length}`"></span>
+          <button class="chapter-nav-btn" @click="nextChapter()" :disabled="!hasNext">
+            下一章
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <!-- Chat panel -->
+  <aside class="chat-panel" :class="{ closed: !chatOpen }">
+    <div class="chat-head">
+      <h3>问答助手</h3>
+      <div style="display:flex; gap:6px;">
+        <button class="text-btn" style="background:none;border:none;font-size:12px;color:var(--text-3);padding:4px 8px;cursor:pointer;" @click="chatMessages = []; chatHistory = []">清空</button>
+        <button class="icon-btn" @click="chatOpen = false" style="width:28px;height:28px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="chat-msgs" id="chat-messages">
+      <div x-show="chatMessages.length === 0" class="chat-empty">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        <p>对当前章节有疑问？</p>
+        <p style="margin-top:4px;">问我关于剧情、人物、设定的任何问题</p>
+      </div>
+      <template x-for="(msg, i) in chatMessages" :key="i">
+        <div :class="'bubble ' + msg.role" x-text="msg.content"></div>
+      </template>
+      <div x-show="chatLoading" class="bubble loading">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <div class="row">
+        <textarea x-model="chatInput" @keydown.enter.prevent="sendChat()" placeholder="输入问题，回车发送…" :disabled="chatLoading" rows="1"></textarea>
+        <button class="chat-send" @click="sendChat()" :disabled="!chatInput.trim() || chatLoading" title="发送">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+<script>
+function reader(bookId) {
+  return {
+    bookId,
+    book: {},
+    allChapters: [],
+    currentChapter: null,
+    currentText: '',
+    dehydratedText: '',
+    rawText: '',
+    loading: false,
+    onlyDone: false,
+    chatOpen: false,
+    chatInput: '',
+    chatMessages: [],
+    chatHistory: [],
+    chatLoading: false,
+    isDark: document.documentElement.classList.contains('dark'),
+
+    // Reader settings
+    fontSize: parseInt(localStorage.getItem('reader_fs') || '17'),
+    fontFamily: localStorage.getItem('reader_ff') || 'sans',
+    pageWidth: parseInt(localStorage.getItem('reader_pw') || '720'),
+    settingsOpen: false,
+
+    // Topbar auto-hide
+    topbarHidden: false,
+    lastScrollY: 0,
+    readPct: 0,
+    mobileTocOpen: false,
+    showRaw: false,
+
+    get displayChapters() {
+      if (this.onlyDone) return this.allChapters.filter(c => c.dehydrate_status === 'done');
+      return this.allChapters;
+    },
+    get currentIndexInDisplay() {
+      if (!this.currentChapter) return -1;
+      return this.displayChapters.findIndex(c => c.id === this.currentChapter.id);
+    },
+    get hasPrev() { return this.currentIndexInDisplay > 0; },
+    get hasNext() { return this.currentIndexInDisplay >= 0 && this.currentIndexInDisplay < this.displayChapters.length - 1; },
+
+    toggleDark() {
+      this.isDark = !this.isDark;
+      document.documentElement.classList.toggle('dark', this.isDark);
+      localStorage.setItem('theme', this.isDark ? 'dark' : 'light');
+    },
+
+    setFontSize(v) { this.fontSize = v; localStorage.setItem('reader_fs', v); },
+    setFontFamily(v) { this.fontFamily = v; localStorage.setItem('reader_ff', v); },
+    setPageWidth(v) { this.pageWidth = v; localStorage.setItem('reader_pw', v); },
+
+    onScroll() {
+      const el = this.$refs.readerMain;
+      if (!el) return;
+      const y = el.scrollTop;
+      // Topbar: hide on scroll down, show on scroll up (after small threshold)
+      const delta = y - this.lastScrollY;
+      if (y > 80 && delta > 6) this.topbarHidden = true;
+      else if (delta < -6 || y < 60) this.topbarHidden = false;
+      this.lastScrollY = y;
+      // Reading progress
+      const max = el.scrollHeight - el.clientHeight;
+      this.readPct = max > 0 ? Math.min(1, y / max) : 0;
+    },
+
+    async init() {
+      const [bookRes, structRes] = await Promise.all([
+        fetch(`/api/books/${bookId}`),
+        fetch(`/api/books/${bookId}/structure`),
+      ]);
+      this.book = await bookRes.json();
+      const struct = await structRes.json();
+
+      const fromVols = struct.volumes.flatMap(v => v.chapters);
+      const merged = [...fromVols, ...struct.loose_chapters];
+      merged.sort((a, b) => a.seq - b.seq);
+      this.allChapters = merged;
+
+      const saved = localStorage.getItem(`reader_${bookId}`);
+      if (saved) {
+        const ch = this.allChapters.find(c => c.id === parseInt(saved));
+        if (ch) { await this.loadChapter(ch); return; }
+      }
+      if (this.allChapters.length > 0) await this.loadChapter(this.allChapters[0]);
+    },
+
+    async loadChapter(ch) {
+      this.loading = true;
+      this.currentChapter = ch;
+      this.rawText = '';
+      this.dehydratedText = '';
+      this.showRaw = false;
+      this.chatMessages = [];
+      this.chatHistory = [];
+      localStorage.setItem(`reader_${this.bookId}`, ch.id);
+
+      // Scroll to top
+      this.$nextTick(() => {
+        if (this.$refs.readerMain) this.$refs.readerMain.scrollTop = 0;
+      });
+
+      try {
+        const fetches = [
+          fetch(`/api/books/${this.bookId}/chapters/${ch.id}/content?version=raw`),
+        ];
+        if (ch.dehydrate_status === 'done') {
+          fetches.push(fetch(`/api/books/${this.bookId}/chapters/${ch.id}/content?version=dehydrated`));
+        }
+        const responses = await Promise.all(fetches);
+        const rawData = await responses[0].json();
+        this.rawText = rawData.text || '';
+
+        if (responses.length > 1) {
+          const dData = await responses[1].json();
+          this.dehydratedText = dData.text || '';
+          this.currentText = this.dehydratedText;
+        } else {
+          this.dehydratedText = '';
+          this.currentText = this.rawText;
+        }
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async prevChapter() {
+      const idx = this.currentIndexInDisplay;
+      if (idx > 0) await this.loadChapter(this.displayChapters[idx - 1]);
+    },
+    async nextChapter() {
+      const idx = this.currentIndexInDisplay;
+      if (idx < this.displayChapters.length - 1) await this.loadChapter(this.displayChapters[idx + 1]);
+    },
+
+    // ── Skip mark raw text extraction ────────────────────────────
+    // The kept text in dehydrated is AI-paraphrased, NOT verbatim — string matching
+    // is unreliable. Instead, use the size metadata embedded in each skip mark
+    // (e.g. 【略：约400字...】) plus proportional distribution to locate each skip
+    // inside rawText without any string matching at all.
+    extractSkippedTexts(rawText, dehydratedText) {
+      if (!rawText || !dehydratedText) return [];
+      const metaIdx = dehydratedText.indexOf('---CHAPTER_META---');
+      const cleanDehy = metaIdx !== -1 ? dehydratedText.substring(0, metaIdx) : dehydratedText;
+
+      const skipRe = /【略[：:][^】]*】/g;
+      const skipMatches = [...cleanDehy.matchAll(skipRe)];
+      if (skipMatches.length === 0) return [];
+
+      // ① Parse stated size from each skip mark (约X字 / X百字 etc.)
+      const skipSizes = skipMatches.map(m => {
+        const t = m[0];
+        const n = t.match(/约\s*(\d+)/);
+        return n ? parseInt(n[1]) : 300; // fallback 300 chars
+      });
+
+      // ② Segments of kept (paraphrased) text between skip marks
+      const segments = cleanDehy.split(skipRe);
+
+      // ③ Work on normalized rawText (collapse whitespace for cleaner slicing)
+      const normRaw = rawText.replace(/[\s　]+/g, ' ').trim();
+      const totalRaw = normRaw.length;
+
+      // ④ Estimate total kept chars in rawText
+      //    rawTotal = keepTotal + skipTotal  →  keepTotal = rawTotal - skipTotal
+      const totalSkipped = skipSizes.reduce((a, b) => a + b, 0);
+      const totalKeptRaw = Math.max(totalRaw - totalSkipped, 1);
+
+      // ⑤ Each dehydrated segment's share of the total paraphrased kept text
+      //    gives us an estimate of how many rawText chars it covers.
+      const dehyKeptLengths = segments.map(s => s.replace(/[\s　]+/g, ' ').trim().length);
+      const totalDehyKept = dehyKeptLengths.reduce((a, b) => a + b, 0) || 1;
+      const rawSegLengths  = dehyKeptLengths.map(l =>
+        Math.round(l / totalDehyKept * totalKeptRaw)
+      );
+
+      // ⑥ Walk through rawText and slice out each skip window
+      const results = [];
+      let rawCursor = 0;
+
+      for (let i = 0; i < skipMatches.length; i++) {
+        rawCursor += rawSegLengths[i];          // advance past the kept segment
+        const start = Math.max(0, rawCursor);
+        const end   = Math.min(totalRaw, rawCursor + skipSizes[i]);
+        rawCursor   = end;                      // advance past the skip
+
+        // Snap to nearest paragraph (newline) boundaries for cleaner reading
+        const slice = normRaw.substring(start, end).trim();
+        results.push(slice.length > 5 ? slice : '');
+      }
+      return results;
+    },
+
+    formatText(text, rawText) {
+      if (!text) return '';
+      const metaIdx = text.indexOf('---CHAPTER_META---');
+      if (metaIdx !== -1) text = text.substring(0, metaIdx);
+      const skippedTexts = this.extractSkippedTexts(rawText, text);
+      let skipIdx = 0;
+      return text.split('\n').filter(l => l.trim()).map(l => {
+        const escaped = l.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        if (/^【略[：:]/.test(l)) {
+          const raw = skippedTexts[skipIdx] || '';
+          skipIdx++;
+          // Always render as <details> — never degrade to non-clickable <span>
+          const body = raw
+            ? `<div class="skip-raw">${raw.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`
+            : `<div class="skip-raw" style="opacity:.6;font-style:italic;">原文片段定位失败，请点击顶栏「原文」按钮查看完整章节原文。</div>`;
+          return `<details class="skip-details"><summary>${escaped}</summary>${body}</details>`;
+        }
+        return `<p>${escaped}</p>`;
+      }).join('');
+    },
+
+    // ── Chat ─────────────────────────────────────────────────────
+    async sendChat() {
+      const q = this.chatInput.trim();
+      if (!q || this.chatLoading || !this.currentChapter) return;
+      this.chatInput = '';
+      this.chatMessages.push({ role: 'user', content: q });
+      this.chatLoading = true;
+      this.$nextTick(() => {
+        const el = document.getElementById('chat-messages');
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+      try {
+        const res = await fetch(`/api/books/${this.bookId}/chat`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chapter_id: this.currentChapter.id, question: q, history: this.chatHistory }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || '请求失败');
+        }
+        const data = await res.json();
+        this.chatMessages.push({ role: 'assistant', content: data.answer });
+        this.chatHistory.push({ role: 'user', content: q });
+        this.chatHistory.push({ role: 'assistant', content: data.answer });
+      } catch (e) {
+        this.chatMessages.push({ role: 'assistant', content: '出错了：' + e.message });
+      } finally {
+        this.chatLoading = false;
+        this.$nextTick(() => {
+          const el = document.getElementById('chat-messages');
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      }
+    },
+  };
+}
+</script>
+</body>
+</html>
