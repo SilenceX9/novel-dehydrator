@@ -37,7 +37,7 @@
 ### 安装
 
 ```bash
-git clone https://github.com/your-username/novel-dehydrator.git
+git clone https://github.com/SilenceX9/novel-dehydrator.git
 cd novel-dehydrator
 
 python -m venv .venv
@@ -142,7 +142,7 @@ MIT License
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-username/novel-dehydrator.git
+git clone https://github.com/SilenceX9/novel-dehydrator.git
 cd novel-dehydrator
 
 python -m venv .venv
